@@ -1,6 +1,8 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 from .database.crud import Database
+from .bot.bot import Bot
 
 database = None
 
@@ -13,3 +15,10 @@ def load_db(database_url):
 
     global database
     database = Database(session())
+
+
+async def start_bot(bot_token):
+    global database
+
+    bot = Bot(bot_token, database)
+    await bot.start()

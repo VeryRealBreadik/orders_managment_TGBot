@@ -1,22 +1,7 @@
-#!/usr/bin/env python
-# pylint: disable=unused-argument
-# This program is dedicated to the public domain under the CC0 license.
-
-"""
-First, a few callback functions are defined. Then, those functions are passed to
-the Application and registered at their respective places.
-Then, the bot is started and runs until we press Ctrl-C on the command line.
-
-Usage:
-Example of a bot-user conversation using ConversationHandler.
-Send /start to initiate the conversation.
-Press Ctrl-C on the command line or send a signal to the process to stop the
-bot.
-"""
-
-import logging
 from typing import Dict
 
+from warnings import filterwarnings
+from telegram.warnings import PTBUserWarning
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
 from telegram.ext import (
     Application,
@@ -24,47 +9,96 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     MessageHandler,
-    filters,
+    filters, PicklePersistence, ApplicationBuilder,
 )
 
-# Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-# set higher logging level for httpx to avoid all GET and POST requests being logged
-logging.getLogger("httpx").setLevel(logging.WARNING)
+# filterwarnings(action="ignore", message=r".*CallbackQueryHandler", category=PTBUserWarning)
 
-logger = logging.getLogger(__name__)
-
-CHOOSING_TABLE, CHOOSING_ACTION = range(1)
+CHOOSING_TABLE, CRUD_CLIENTS, CRUD_ORDERS, TYPING = range(4)
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply_keyboard = [
-        ["Orders", "Clients"],
-        ["Stop"]
-    ]
-    markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
-    await update.message.reply_text(
-        "Что делать?",
-        reply_markup=markup,
-    )
+class Bot:
+    def __init__(self, token: str, database = None):
+        self.token = token
+        print("g")
+        self.persistence = PicklePersistence(filepath="mainbot.pkl")
+        self.application = ApplicationBuilder().token(self.token).persistence(self.persistence).build()
+        self.database = database
 
-    return CHOOSING_TABLE
+    async def start(self):
+        conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler("start", self.start_cmd)],
+            states={
+                CHOOSING_TABLE: [
+                    MessageHandler(filters.Regex("^Клиенты$"), self.crud_clients),
+                    MessageHandler(filters.Regex("^Заказы$"), self.crud_orders)
+                ],
+                CRUD_CLIENTS: [
+                    # MessageHandler(filters.Regex("^Добавить клиента$"), self.add_client_start),
+                    # MessageHandler(filters.Regex("^Просмотреть клиента$"), self.read_client_start),
+                    # MessageHandler(filters.Regex("^Обновить клиента$"), self.update_client_start),
+                    # MessageHandler(filters.Regex("^Удалить клиента$"), self.delete_client_start)
+                ],
+                CRUD_ORDERS: [
 
+                ]
+            },
+            fallbacks=[
+                MessageHandler(filters.ALL, self.fallback)
+            ],
+            name="main_conversation",
+            persistent=True,
+            allow_reentry=True
+        )
+        print("Rawr1")
+        self.application.add_handler(conv_handler)
+        await self.application.initialize()
+        await self.application.start()
+        await self.application.updater.start_polling()
+        print("Rawr")
 
-async def crud(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply_keyboard = [
-        ["Create", "Read"],
-        ["Update", "Delete"],
-        ["Stop"]
-    ]
-    markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
-    await update.message.reply_text(
-        "C, R, U или D?",
-        reply_markup=markup,
-    )
+    async def start_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        reply_keyboard = [
+            ["Orders", "Clients"]
+        ]
+        markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=False)
+        await update.message.reply_text(
+            "Что делать?",
+            reply_markup=markup,
+        )
 
-    return CHOOSING_ACTION
+        return CHOOSING_TABLE
 
-# TODO: razobratsya......
+    async def crud_clients(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        reply_keyboard = [
+            ["Добавить клиента", "Просмотреть клиента"],
+            ["Обновить клиента", "Удалить клиента"],
+            ["Вернуться", ""]
+        ]
+        markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+        await update.message.reply_text(
+            "C, R, U или D?",
+            reply_markup=markup,
+        )
+
+        return CRUD_CLIENTS
+
+    async def crud_orders(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        reply_keyboard = [
+            ["Добавить заказ", "Просмотреть заказ"],
+            ["Обновить заказ", "Удалить заказ"],
+            ["Вернуться", ""]
+        ]
+        markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+        await update.message.reply_text(
+            "C, R, U или D?",
+            reply_markup=markup,
+        )
+
+        return CRUD_ORDERS
+
+    async def fallback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text(
+            "Pizdec"
+        )
