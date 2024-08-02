@@ -15,7 +15,7 @@ from telegram.ext import (
 
 filterwarnings(action="ignore", message=r".*CallbackQueryHandler", category=PTBUserWarning)
 
-CHOOSING_TABLE, CRUD_CLIENTS, CRUD_ORDERS, TYPING = range(4)
+CHOOSING_TABLE, CRUD_CLIENTS, CRUD_ORDERS, CREATING, READING, UPDATING, DELETING = range(7)
 
 
 class Bot:
@@ -40,7 +40,7 @@ class Bot:
                     MessageHandler(filters.Regex("^Заказы$"), self.crud_orders)
                 ],
                 CRUD_CLIENTS: [
-                    MessageHandler(filters.Regex("^Добавить клиента$"), self.add_client_start),
+                    MessageHandler(filters.Regex("^Добавить клиента$"), self.create_client_start),
                     MessageHandler(filters.Regex("^Просмотреть клиента$"), self.read_client_start),
                     MessageHandler(filters.Regex("^Обновить клиента$"), self.update_client_start),
                     MessageHandler(filters.Regex("^Удалить клиента$"), self.delete_client_start),
@@ -48,15 +48,22 @@ class Bot:
                     CallbackQueryHandler(self.clients_page_buttons)
                 ],
                 CRUD_ORDERS: [
-                    MessageHandler(filters.Regex("^Добавить заказ$"), self.add_order_start),
+                    MessageHandler(filters.Regex("^Добавить заказ$"), self.create_order_start),
                     MessageHandler(filters.Regex("^Просмотреть заказ$"), self.read_order_start),
                     MessageHandler(filters.Regex("^Обновить заказ$"), self.update_order_start),
                     MessageHandler(filters.Regex("^Удалить заказ$"), self.delete_order_start),
                     MessageHandler(filters.Regex("^Вернуться$"), self.start_cmd),
                     CallbackQueryHandler(self.orders_page_buttons)
                 ],
-                TYPING: [
-                    MessageHandler(filters.ALL & ~filters.COMMAND, self.perform_action_on_database) #  TODO: сделать возврат на уровень вверх по кнопке "Вернуться"
+                CREATING: [
+                    MessageHandler(filters.Regex("^([А-Яа-яЁё]+\s([А-Яа-яЁё]+)\s[А-Яа-яЁё]+)\s(\d{11})$"), self.create_client),
+                    # MessageHandler(filters.Regex("^$"), self.create_order) FIXME: Доделать регулярку и функцию create_order
+                ],
+                READING: [
+                    MessageHandler(filters.Regex("^\d+$|^[А-Яа-яЁё]+$"), self.read_records)
+                ],
+                UPDATING: [
+                    MessageHandler(filters.Regex("^\d+$|^[А-Яа-яЁё]+$"), self.)
                 ]
             },
             fallbacks=[
@@ -70,6 +77,13 @@ class Bot:
         await self.application.initialize()
         await self.application.start()
         await self.application.updater.start_polling()
+#  TODO: Переделать архитекутуру бота. Уровни должны выглядеть следующим образом:
+#  Выбрать таблицу (Clients/Orders) -> Выбрать действие (Create/Read) ->
+#      Если Create -> Пользователь вводит данные клиента/заказа в нужном формате -> Продолжает создание записей о клиентах/заказах или возвращается назад
+#      Если Read -> Пользователь ищет клиента/заказ по ID клиента/заказа, или по имени клиента, или по нужной неделе -> Если находит ОДНУ нужную запись о клиенте/заказе, пользователь выбирает действие с записью Update/Delete или вернуться назад ->
+#          Если Update -> Пользователь вводит в нужном формате новые данные для данной записи -> Данные обновляются ->
+#          Если Delete -> Запись удаляется из БД ->
+#              Пользователя возвращают на поиск записи о клиенте/заказе
 
 #  ---------------------------------------------------------------------------------------------------------------------
 #  START
@@ -88,7 +102,7 @@ class Bot:
 #  ---------------------------------------------------------------------------------------------------------------------
 #  CRUD
 #  CLIENTS CRUD
-    async def crud_clients(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def crud_clients(self, update: Update, context: ContextTypes.DEFAULT_TYPE): #  TODO: Пересмотреть работу данной функции
         user_data = context.user_data
         user_data["current_table"] = "clients"
 
@@ -97,7 +111,7 @@ class Bot:
             reply_keyboard = [
                 ["Добавить клиента", "Просмотреть клиента"],
                 ["Обновить клиента", "Удалить клиента"],
-                ["Вернуться", ""]
+                ["Вернуться", ""] #  TODO: Дать пользователю только два выбора: Create/Read/Return
             ]
             markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
             await update.message.reply_text(
@@ -141,7 +155,7 @@ class Bot:
 
 #  ---------------------------------------------------------------------------------------------------------------------
 #  ORDERS CRUD
-    async def crud_orders(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def crud_orders(self, update: Update, context: ContextTypes.DEFAULT_TYPE): #  TODO: Пересмотреть работу данной функции (можно ли это как-то объединить с crud_clients?...)
         user_data = context.user_data
         user_data["current_table"] = "orders"
 
@@ -150,7 +164,7 @@ class Bot:
             reply_keyboard = [
                 ["Добавить заказ", "Просмотреть заказ"],
                 ["Обновить заказ", "Удалить заказ"],
-                ["Вернуться", ""]
+                ["Вернуться", ""] #  TODO: Дать пользователю только два выбора: Create/Read/Return
             ]
             markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
             await update.message.reply_text(
@@ -199,13 +213,15 @@ class Bot:
 #  FALLBACKS
     async def fallback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
-            "Pizdec"
+            "ERROR"
         )
+        return self.start_cmd()
+#  TODO: Сделать более адекватные fallbacks для непредвиденных ситуаций
 
 #  ---------------------------------------------------------------------------------------------------------------------
 #  CRUD ACTIONS
 #  CLIENTS ACTIONS
-    async def add_client_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def create_client_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
         user_data["action"] = "client_create"
         reply_keyboard = [
@@ -217,7 +233,7 @@ class Bot:
             reply_markup=markup,
         )
 
-        return TYPING
+        return TYPING #  TODO: TYPING больше нет, заменить на нужный впоследствии
 
     async def read_client_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
@@ -231,7 +247,7 @@ class Bot:
             reply_markup=markup,
         )
 
-        return TYPING
+        return TYPING #  TODO: TYPING больше нет, заменить на нужный впоследствии
 
     async def update_client_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
@@ -245,7 +261,7 @@ class Bot:
             reply_markup=markup,
         )
 
-        return TYPING
+        return TYPING #  TODO: TYPING больше нет, заменить на нужный впоследствии
 
     async def delete_client_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
@@ -259,63 +275,94 @@ class Bot:
             reply_markup=markup,
         )
 
-        return TYPING
+        return TYPING #  TODO: TYPING больше нет, заменить на нужный впоследствии
 
 #  ---------------------------------------------------------------------------------------------------------------------
 #  ORDERS ACTIONS TODO: доделать как CLIENTS CRUD
-    async def add_order_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def create_order_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
         user_data["action"] = "order_create"
 
-        return TYPING
+        return TYPING #  TODO: TYPING больше нет, заменить на нужный впоследствии
 
     async def read_order_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
         user_data["action"] = "order_read"
 
-        return TYPING
+        return TYPING #  TODO: TYPING больше нет, заменить на нужный впоследствии
 
     async def update_order_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
         user_data["action"] = "order_update"
 
-        return TYPING
+        return TYPING #  TODO: TYPING больше нет, заменить на нужный впоследствии
 
     async def delete_order_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
         user_data["action"] = "order_delete"
 
-        return TYPING
+        return TYPING #  TODO: TYPING больше нет, заменить на нужный впоследствии
 
 #  ---------------------------------------------------------------------------------------------------------------------
-#  TYPING
-    async def perform_action_on_database(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        user_data = context.user_data
-        if "action" not in user_data.keys():
+#  TYPING TODO: TYPING больше нет, заменить на нужный впоследствии
+    async def create_client(self, update: Update, context: ContextTypes.DEFAULT_TYPE): #  TODO: Попытаться сделать эту функцию универсальной для Clients/Orders (create_record)
+        client_data = update.message.text
+        client_data_dict = {"client_name": client_data[2], "client_fullname": client_data[1], "client_phone_number": client_data[3]}
+        try:
+            self.database.create_client(client_data_dict)
             await update.message.reply_text(
-                "Что-то пошло не так..."
+                "Данные добавлены успешно! Нажмите кнопку 'Вернуться', чтобы закончить добавление клиентов или продолжайте добавлять новых клиентов дальше",
             )
-            return self.start_cmd(update, context)
-        user_data["data"] = update.message.text
-        if user_data["action"] == "client_create":
-            client_data = re.match(r"^([А-Яа-яЁё]+\s([А-Яа-яЁё]+)\s[А-Яа-яЁё]+)\s(\d{11})$", user_data["data"])
-            if client_data:
-                client_data_dict = {"client_name": client_data[2], "client_fullname": client_data[1], "client_phone_number": client_data[3]}
-                try:
-                    self.database.create_client(client_data_dict)
+            return self.create_client(update, context)
+        except Exception as e:
+            await update.message.reply_text(
+                f"Что-то пошло не так... Попробуйте ввести данные заново или нажмите кнопку 'Вернуться', чтобы закончить добавление клиентов",
+            )
+            return await self.create_client_start(update, context)
+
+    async def read_records(self, update: Update, context: ContextTypes.DEFAULT_TYPE): #  TODO: Пересмотреть работу данной функции (возможны ошибки/недочёты при новой архитектуре), попытаться оптимизировать, сделать функции меньше
+        user_data = context.user_data
+        if user_data["current_table"] == "clients":
+            client_id = re.match(r"^\d+$", update.message.text)
+            client_name = re.match(r"^[А-Яа-яЁё]+$", update.message.text)
+            if client_id:
+                client_to_display = self.database.get_client_by_id(client_id)
+                if client_to_display:
                     await update.message.reply_text(
-                        "Данные добавлены успешно! Нажмите кнопку 'Вернуться', чтобы закончить добавление клиентов или продолжайте добавлять новых клиентов дальше",
+                        f"Информация по запрошеному клиенту:\n{str(client_to_display)}\n\nЕсли хотите найти информацию ещё по каким-либо клиентам, то введите ID клиента либо его имя, в ином случае, нажмите кнопку 'Вернуться'",
                     )
-                    return TYPING
-                except Exception as e:
+                    return self.read_records(update, context)
+                else:
                     await update.message.reply_text(
-                        f"Что-то пошло не так... Попробуйте ввести данные заново или нажмите кнопку 'Вернуться', чтобы закончить добавление клиентов. ОШИБКА {e}",
+                        f"Информация по запрошеному клиенту с ID {client_id} не найдена, попробуйте ввести другие данные ID/имени или нажмите 'Вернуться'",
                     )
-                    return await self.add_client_start(update, context)
+                    return self.read_records(update, context)
+            elif client_name:
+                clients_to_display = self.database.get_clients_by_name(client_name)
+                if clients_to_display:
+                    await update.message.reply_text(
+                        f"Информация по всем пользователям с именем {client_name}:\n{self.format_clients_output(clients_to_display)}\n\nЕсли хотите найти информацию ещё по каким-либо клиентам, то введите ID клиента либо его имя, в ином случае, нажмите кнопку 'Вернуться'",
+                    )
+                    return self.read_records(update, context)
+                else:
+                    await update.message.reply_text(
+                        f"Информация по запрошеному клиенту с именем {client_name} не найдена, попробуйте ввести другие данные ID/имени или нажмите 'Вернуться'",
+                    )
+                    return self.read_records(update, context)
             else:
                 await update.message.reply_text(
-                    "Неверный формат ввода данных клиента, повторите ввод данных",
+                    "Что-то пошло не так..."
                 )
-                return await self.add_client_start(update, context)
+                return self.start_cmd(update, context)
+        elif user_data["current_table"] == "orders":
+            pass #  TODO: Доделать вывод данных о заказах (по ID и за текущую неделю/2/3/тд...)
 
-#  TODO: Разобраться полностью с функцией perform_action_on_database (доделать client_create и начать делать остальные)
+    async def update_record(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        pass
+    
+    async def delete_record(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        pass
+
+#  ---------------------------------------------------------------------------------------------------------------------
+#  UTILITY FUNCTIONS
+#  TODO: Оптимизировать большие функции с помощью utility функций, используемых только в основных функциях

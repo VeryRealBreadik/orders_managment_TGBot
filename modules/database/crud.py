@@ -20,8 +20,8 @@ class Database:
     def get_client_by_id(self, client_id: int):
         return self.session.query(Clients).filter(Clients.client_id == client_id).first()
 
-    def get_client_by_name(self, client_name: str):
-        return self.session.query(Clients).filter(Clients.client_name == client_name).first()
+    def get_clients_by_name(self, client_name: str):
+        return self.session.query(Clients).filter(Clients.client_name == client_name).all()
 
     def get_clients(self):
         return self.session.query(Clients).all()
