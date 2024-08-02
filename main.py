@@ -12,8 +12,7 @@ load_db(os.getenv("DATABASE_URL"))
 
 
 async def main():
-    bot = Bot(os.getenv("BOT_TOKEN"))
-    await bot.start()
+    await start_bot(os.getenv("BOT_TOKEN"))
 
     stop_event = asyncio.Event()
     await stop_event.wait()

@@ -10,7 +10,7 @@ class Database:
     #  Clients table
     def create_client(self, client_dict: dict):
         client = Clients(
-            client_name=client_dict["client_name"].split()[1],
+            client_name=client_dict["client_name"],
             client_fullname=client_dict["client_fullname"],
             client_phone_number=client_dict["client_phone_number"]
         )
