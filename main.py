@@ -12,11 +12,11 @@ load_db(os.getenv("DATABASE_URL"))
 
 
 async def main():
-    await start_bot(os.getenv("BOT_TOKEN"))
-
-async def gay():
     bot = Bot(os.getenv("BOT_TOKEN"))
     await bot.start()
 
+    stop_event = asyncio.Event()
+    await stop_event.wait()
+
 if __name__ == "__main__":
-    asyncio.run(gay())
+    asyncio.run(main())
