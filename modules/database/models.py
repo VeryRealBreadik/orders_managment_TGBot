@@ -1,3 +1,5 @@
+import time
+
 from sqlalchemy import ForeignKey, String, Column, Integer, DateTime, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.declarative import declarative_base
@@ -15,7 +17,7 @@ class Clients(Base):
     client_phone_number: Mapped[str] = Column(String(20))
 
     def __repr__(self):
-        return f"> {self.client_id} - {self.client_fullname} - {self.client_phone_number}"
+        return f"{self.client_id} - {self.client_fullname} - {self.client_phone_number}"
 
 
 class Orders(Base):
@@ -28,4 +30,4 @@ class Orders(Base):
     order_payed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     def __repr__(self):
-        return f"> {self.order_id} - {} - {self.order_sum} {self.order_date} {self.order_payed}" #  TODO: Разобраться с форматированием вывода заказов
+        return f"{self.order_id} -  - {self.order_sum} {self.order_date} {self.order_payed}" #  TODO: Разобраться с форматированием вывода заказов
