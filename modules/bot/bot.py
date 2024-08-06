@@ -32,7 +32,9 @@ class Bot:
     async def start(self):
         conv_handler = ConversationHandler(
             entry_points=[
-                CommandHandler("start", self.start_cmd)],
+                CommandHandler("start", self.start_cmd),
+                MessageHandler(filters.Regex("^Вернуться$"), self.return_handler_function)
+            ],
             states={
                 CHOOSING_TABLE: [
                     MessageHandler(filters.Regex("^Клиенты$"), self.choose_action_over_clients_table)
@@ -40,14 +42,12 @@ class Bot:
                 PRE_ACTION: [
                     MessageHandler(filters.Regex("^Добавить [А-Яа-яЁё]+$"), self.create_start),
                     MessageHandler(filters.Regex("^Просмотреть [А-Яа-яЁё]+$"), self.read_start),
-                    CallbackQueryHandler(self.page_buttons)
                 ],
                 CREATING: [
                     MessageHandler(filters.Regex(r"^([А-Яа-яЁё]+\s([А-Яа-яЁё]+)\s[А-Яа-яЁё]+)\s(\d{11})$|^\d{2}\.\d{2}\.\d{4}\s\d+[\.|\,]?\d*\s(да|нет)i$"), self.create_records)
                 ],
                 READING: [
                     MessageHandler(filters.Regex(r"^\d+$|^[А-Яа-яЁё]+$"), self.read_clients_records),
-                    CallbackQueryHandler(self.page_buttons)
                 ],
                 ACTIONS_WITH_CLIENTS: [
 
@@ -66,6 +66,8 @@ class Bot:
             persistent=True,
             allow_reentry=True
         )
+        page_handler = CallbackQueryHandler(self.page_buttons)
+        self.application.add_handler(page_handler)
         self.application.add_handler(conv_handler)
         await self.application.initialize()
         await self.application.start()
@@ -81,6 +83,8 @@ class Bot:
 #  ---------------------------------------------------------------------------------------------------------------------
 #  START
     async def start_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_data = context.user_data
+        user_data["states_deque"] = []
         reply_keyboard = [
             ["Клиенты"]
         ]
@@ -99,12 +103,11 @@ class Bot:
         user_data = context.user_data
         user_data["current_table"] = "clients"
 
-        records_to_display = self.database.get_clients()[:self.page_limit]
-        self.paginator[update.message.message_id] = records_to_display
+        records = self.database.get_clients()
+        records_to_display = records[:self.page_limit]
         if records_to_display:
             reply_keyboard = [
-                ["Добавить клиента", "Просмотреть клиента"],
-                ["Вернуться", ""]
+                ["Добавить клиента", "Просмотреть клиента"]
             ]
             markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=False, resize_keyboard=True)
             await update.message.reply_text(
@@ -112,12 +115,15 @@ class Bot:
                 reply_markup=markup,
             )
             inline_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Назад", callback_data="page_1"), InlineKeyboardButton("Вперёд", callback_data="page_2")]
+                [InlineKeyboardButton("Назад", callback_data="page_0"), InlineKeyboardButton("Вперёд", callback_data="page_2")]
             ])
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 f"{self.format_clients_output(records_to_display)}",
                 reply_markup=inline_markup,
             )
+            if len(self.paginator) > 2:
+                del self.paginator[list(self.paginator.keys())[0]]
+            self.paginator[msg.message_id] = records
         else:
             reply_keyboard = [
                 ["Добавить клиента"],
@@ -128,63 +134,9 @@ class Bot:
                 "База данных клиентов пуста, добавьте клиентов для начала работы",
                 reply_markup=markup,
             )
+        user_data["states_deque"].append(self.choose_action_over_clients_table)
 
         return PRE_ACTION
-
-#  ---------------------------------------------------------------------------------------------------------------------
-#  ORDERS ACTIONS
-#     async def choose_action_over_orders_table(self, update: Update, context: ContextTypes.DEFAULT_TYPE): #  TODO: Пересмотреть работу данной функции (можно ли это как-то объединить с crud_clients?...)
-#         user_data = context.user_data
-#         user_data["current_table"] = "orders"
-#
-#         orders = self.database.get_orders_by_week()[:self.page_limit]
-#         if orders:
-#             reply_keyboard = [
-#                 ["Добавить заказ", "Просмотреть заказ"],
-#                 ["Вернуться", ""]
-#             ]
-#             markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=False, resize_keyboard=True)
-#             await update.message.reply_text(
-#                 "Добавить/просмотреть заказ?",
-#                 reply_markup=markup,
-#             )
-#             inline_markup = InlineKeyboardMarkup([
-#                 [InlineKeyboardButton("Назад", callback_data="page_1"),
-#                  InlineKeyboardButton("Вперёд", callback_data="page_2")]
-#             ])
-#             await update.message.reply_text(
-#                 f"{self.format_clients_output(orders)}",
-#                 reply_markup=inline_markup,
-#             )
-#         else:
-#             reply_keyboard = [
-#                 ["Добавить заказ"],
-#                 ["Вернуться"]
-#             ]
-#             markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=False, resize_keyboard=True)
-#             await update.message.reply_text(
-#                 "База данных заказов пуста, добавьте заказы для начала работы",
-#                 reply_markup=markup,
-#             )
-#
-#         return PRE_ACTION
-#
-#     async def orders_page_buttons(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-#         query = update.callback_query
-#         await query.answer()
-#         if query.data.startswith("page_"):
-#             page = int(query.data.split("_")[-1])
-#             orders = self.database.get_orders_by_week()
-#             orders_on_current_page = orders[(page - 1) * self.page_limit: page * self.page_limit]
-#             inline_markup = InlineKeyboardMarkup([
-#                 [InlineKeyboardButton("Назад", callback_data=f"page_{page - 1 if page > 1 else page}"),
-#                  InlineKeyboardButton("Вперёд",
-#                                       callback_data=f"page_{page + 1 if page < len(orders) / self.page_limit + (1 if len(orders) % self.page_limit else 0) else page}")]
-#             ])
-#             await query.message.edit_text(
-#                 f"{self.format_clients_output(orders_on_current_page)}",
-#                 reply_markup=inline_markup,
-#             )
 
 #  ---------------------------------------------------------------------------------------------------------------------
 #  FALLBACKS
@@ -219,6 +171,7 @@ class Bot:
             f"Введите данные {current_table_info_name} в формате '{current_table_info_format}'",
             reply_markup=markup,
         )
+        user_data["states_deque"].append(self.create_start)
 
         return CREATING
 
@@ -232,6 +185,7 @@ class Bot:
             "Введите ID или имя клиента",
             reply_markup=markup,
         )
+        user_data["states_deque"].append(self.read_start)
 
         return READING
 
@@ -267,7 +221,7 @@ class Bot:
 #  TYPING TODO: TYPING больше нет, заменить на нужный впоследствии
     async def create_records(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = context.user_data
-        record_data = re.match(r"^([А-Яа-яЁё]+\s([А-Яа-яЁё]+)\s[А-Яа-яЁё]+)\s(\d{11})$|^(\d{2}[.,-]\d{2}[.,-]\d{4}) (\d+[.,]?\d*) (?i)(да|нет)$", update.message.text)
+        record_data = re.match(r"^([А-Яа-яЁё]+\s([А-Яа-яЁё]+)\s[А-Яа-яЁё]+)\s(\d{11})$|^(\d{2}[.,-]\d{2}[.,-]\d{4}) (\d+[.,]?\d*) (да|нет)i$", update.message.text)
         if user_data["current_table"] == "clients":
             record_data_dict = {"client_name": record_data[2], "client_fullname": record_data[1], "client_phone_number": record_data[3]}
             create_record_function = self.database.create_client
@@ -289,16 +243,17 @@ class Bot:
             await update.message.reply_text(
                 f"Данные добавлены успешно! Нажмите кнопку 'Вернуться', чтобы закончить добавление {info_name1} или продолжайте добавлять {info_name2} дальше",
             )
-            return await self.create_records(update, context) #  TODO: Мб не сработает, потыкать
+            user_data["states_deque"].pop()
+            return await self.create_start(update, context)
         except Exception as e:
             await update.message.reply_text(
                 f"Что-то пошло не так... Попробуйте ввести данные заново или нажмите кнопку 'Вернуться', чтобы закончить добавление {info_name1}",
             )
+            user_data["states_deque"].pop()
             return await self.create_start(update, context)
 
     async def read_clients_records(self, update: Update, context: ContextTypes.DEFAULT_TYPE): #  TODO: Пересмотреть работу данной функции (возможны ошибки/недочёты при новой архитектуре), попытаться оптимизировать, сделать функции меньше
         user_data = context.user_data
-        print(user_data)
         client_id = re.match(r"\d+", update.message.text)
         client_name = re.match(r"[А-Яа-яЁё]+", update.message.text)
         if client_id:
@@ -312,27 +267,32 @@ class Bot:
                 "Что-то пошло не так..."
             )
             return await self.start_cmd(update, context)
-        self.paginator[update.message.message_id] = records_to_display
 
         if not records_to_display:
             await update.message.reply_text(
                 "Записи не найдены... Попробуйте найти клиента по другим данным или нажмите 'Вернуться'"
             )
+            user_data["states_deque"].pop()
             return await self.read_start(update, context)
         if len(records) > self.page_limit:
             inline_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Назад", callback_data="page_1"),
+                [InlineKeyboardButton("Назад", callback_data="page_0"),
                  InlineKeyboardButton("Вперёд", callback_data="page_2")]
             ])
-            await update.message.reply_text(
+            msg = await update.message.reply_text(
                 f"{self.format_clients_output(records_to_display)}",
                 reply_markup=inline_markup,
             )
+            if len(self.paginator) > 2:
+                del self.paginator[list(self.paginator.keys())[0]]
+            self.paginator[msg.message_id] = records
+            user_data["states_deque"].pop()
             return await self.read_start(update, context)
         else:
             await update.message.reply_text(
                 f"{self.format_clients_output(records_to_display)}"
             ) #  TODO: Прикрутить кнопки под сообщение с ОДНОЙ записью о клиенте типа ["Обновить клиента", "Удалить клиента", "Просмотреть заказы клиента за последнюю неделю", "Просмотреть все заказы клиента"]
+            user_data["states_deque"].pop()
             return await self.read_start(update, context)
 #  TODO: После вывода результатов поиска по имени - убрать вариант найти человека по имени и вместо этого искать по ID с
 #  TODO: выведенной информации в сообщении от бота. Также, когда найден один определённый клиент - дать выбор, что делать
@@ -353,11 +313,18 @@ class Bot:
         if query.data.startswith("page_"):
             page = int(query.data.split("_")[-1])
             records = self.paginator[query.message.message_id]
-            records_on_current_page = records[(page - 1) * self.page_limit: page * self.page_limit]
-            inline_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Назад", callback_data=f"page_{page - 1 if page > 1 else page}"), InlineKeyboardButton("Вперёд", callback_data=f"page_{page + 1 if page < len(records) / self.page_limit + (1 if len(records) % self.page_limit else 0) else page}")]
-            ])
-            await query.message.edit_text(
-                f"{self.format_clients_output(records_on_current_page)}",
-                reply_markup=inline_markup,
-            )
+            records_to_display = records[(page - 1) * self.page_limit: page * self.page_limit]
+            if records_to_display and page > 0:
+                inline_markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Назад", callback_data=f"page_{page - 1 if page > 0 else page}"), InlineKeyboardButton("Вперёд", callback_data=f"page_{page + 1 if page < len(records) / self.page_limit + (1 if len(records) % self.page_limit else 0) else page}")]
+                ])
+                await query.message.edit_text(
+                    f"{self.format_clients_output(records_to_display)}",
+                    reply_markup=inline_markup,
+                )
+
+    async def return_handler_function(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        states_deque = context.user_data["states_deque"]
+        states_deque.pop()
+        previous_state = states_deque.pop()
+        return await previous_state(update, context)
